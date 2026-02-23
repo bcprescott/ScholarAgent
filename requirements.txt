@@ -1,0 +1,9 @@
+langgraph
+langchain
+langchain-openai
+arxiv
+semanticscholar
+tavily-python
+playwright
+playwright-stealth
+pymupdf
