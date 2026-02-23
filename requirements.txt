@@ -7,3 +7,4 @@ tavily-python
 playwright
 playwright-stealth
 pymupdf
+tenacity

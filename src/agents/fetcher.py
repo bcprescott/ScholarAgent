@@ -91,7 +91,8 @@ def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
 
             try:
                 # Determine strategy
-                if paper.url and paper.url.lower().endswith('.pdf'):
+                # Arxiv URLs often don't end in .pdf but contain /pdf/
+                if paper.url and (paper.url.lower().endswith('.pdf') or '/pdf/' in paper.url.lower()):
                     content = fetch_pdf_text(paper.url)
                 elif paper.url:
                     content = fetch_web_text_retry_wrapper(context, paper.url)
