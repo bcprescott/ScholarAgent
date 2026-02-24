@@ -106,7 +106,7 @@ def writer_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
         context += f"Limitations: {p.limitations}\n\n"
 
     messages = [
-        {"role": "system", "content": f"You are a scientific writer. Write a comprehensive Markdown report answering the query: '{query}'. Use the provided analysis of relevant papers. Cite sources using the provided DOIs or URLs. Structure the report with: Executive Summary, Key Findings, Methodologies, Limitations, and References."},
+        {"role": "system", "content": f"You are a scientific writer. Write a comprehensive Markdown report answering the query: '{query}'. Use the provided analysis of relevant papers. Cite sources using the provided DOIs or URLs. Structure the report with: Executive Summary, Key Findings, Methodologies, Limitations, and References. Ensure the report has proper Markdown formatting to be visually appealing."},
         {"role": "user", "content": f"Papers Analysis:\n{context}"}
     ]
 

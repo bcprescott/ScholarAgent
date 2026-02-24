@@ -1,6 +1,13 @@
 import argparse
 import os
 import sys
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from src.graph import build_graph
 from src.state import ScientificDiscoveryState
 
