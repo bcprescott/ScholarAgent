@@ -1,0 +1,23 @@
+Supervisor generated queries: {'arxiv': '((liver OR hepatic) AND (rare disease OR rare diseases) AND (drug development OR drug discovery OR therapeutics)) AND 2026', 'pubmed': '((rare liver disease) OR (rare hepatic disease) OR (orphan liver disease)) AND (drug development OR therapeutics OR pharmacotherapy OR drug therapy) AND 2026[PDAT]', 'web': '2026 recent advances in rare liver disease drug development OR breakthroughs in orphan hepatic disease therapies 2026'}
+Web Scout skipped (no API key).
+PubMed found 5 papers.
+ArXiv found 4 papers.
+Successfully fetched Pleiotropic immunoregulation by bile acids in pathophysiology.
+Successfully fetched Long-Term Management of Recurrent Antibody-Induced Bile Salt Export Pump Deficiency After Liver Transplantation Using Therapeutic Plasma Exchange.
+Successfully fetched Combined application of double plasma molecular adsorption system treatment, plasma exchange, and continuous veno-venous hemofiltration to rescue an adult patient with acute liver failure induced by accidental acute severe thinner intoxication: a case report.
+Successfully fetched Unusual Multifocal Localizations of Hydatidosi.
+Successfully fetched Patient Burden in the Treatment of Wilson Disease in the United States: An Analysis of Real-World Health Insurance Claims Data from the Komodo database.
+Successfully fetched Semi-supervised Liver Segmentation and Patch-based Fibrosis Staging with Registration-aided Multi-parametric MRI
+Successfully fetched Machine Learning Models for Predicting Smoking-Related Health Decline and Disease Risk
+Successfully fetched Early Prediction of Liver Cirrhosis Up to Three Years in Advance: A Machine Learning Study Benchmarking Against the FIB-4 Score
+Successfully fetched Toxicity Assessment in Preclinical Histopathology via Class-Aware Mahalanobis Distance for Known and Novel Anomalies
+Analyzed Pleiotropic immunoregulation by bile acids in pathophysiology. (Score: 75.0)
+Analyzed Long-Term Management of Recurrent Antibody-Induced Bile Salt Export Pump Deficiency After Liver Transplantation Using Therapeutic Plasma Exchange. (Score: 0.0)
+Analyzed Combined application of double plasma molecular adsorption system treatment, plasma exchange, and continuous veno-venous hemofiltration to rescue an adult patient with acute liver failure induced by accidental acute severe thinner intoxication: a case report. (Score: 62.0)
+Analyzed Unusual Multifocal Localizations of Hydatidosi. (Score: 45.0)
+Analyzed Patient Burden in the Treatment of Wilson Disease in the United States: An Analysis of Real-World Health Insurance Claims Data from the Komodo database. (Score: 68.0)
+Analyzed Semi-supervised Liver Segmentation and Patch-based Fibrosis Staging with Registration-aided Multi-parametric MRI (Score: 25.0)
+Analyzed Machine Learning Models for Predicting Smoking-Related Health Decline and Disease Risk (Score: 25.0)
+Analyzed Early Prediction of Liver Cirrhosis Up to Three Years in Advance: A Machine Learning Study Benchmarking Against the FIB-4 Score (Score: 20.0)
+Analyzed Toxicity Assessment in Preclinical Histopathology via Class-Aware Mahalanobis Distance for Known and Novel Anomalies (Score: 88.0)
+Report generated successfully.
