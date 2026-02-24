@@ -103,6 +103,7 @@ def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
             if content:
                 paper.full_text = content
                 logs.append(f"Successfully fetched {paper.title}")
+                print(f"Successfully fetched {paper.title}")
             else:
                 if not content: # Log only if not already logged via exception
                      logs.append(f"Failed to fetch content for {paper.title} (empty result)")

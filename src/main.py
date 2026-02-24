@@ -25,8 +25,14 @@ def main():
     )
 
     try:
-        # LangGraph invoke returns the final state
-        final_state = app.invoke(initial_state)
+        # LangGraph stream returns state updates as they happen
+        # We use stream_mode="values" to get the full state after each step
+        final_state = initial_state
+        for state in app.stream(initial_state, stream_mode="values"):
+            final_state = state
+            # We don't have the node name directly here but we can stream values
+            # Alternatively we could have kept the default mode but used app.get_state()
+            print("Step finished...")
 
         report = final_state.get("report", "No report generated.")
         print("\n--- Final Report ---\n")

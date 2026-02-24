@@ -1,8 +1,8 @@
-from langchain_core.prompts import ChatPromptTemplate
 from src.state import ScientificDiscoveryState
-from src.llm import get_llm
+from src.llm import get_llm, get_model_name
 import json
 import re
+import os
 
 def parse_json(text):
     try:
@@ -18,20 +18,24 @@ def supervisor_agent(state: ScientificDiscoveryState):
     llm = get_llm()
     query = state['query']
 
-    # Prompt for keyword generation
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a research supervisor. Given the user query, generate 3 optimized search queries, one for each repository: 1. 'arxiv' (focus on technical/scientific terms), 2. 'semantic_scholar' (academic keywords), 3. 'web' (broad search for recent developments or missed papers). Return strictly valid JSON with keys: 'arxiv', 'semantic_scholar', 'web'."),
-        ("human", "Query: {query}")
-    ])
+    messages = [
+        {"role": "system", "content": "You are a research supervisor. Given the user query, generate 3 optimized search queries, one for each repository: 1. 'arxiv' (focus on technical/scientific terms), 2. 'pubmed' (medical/clinical keywords), 3. 'web' (broad search for recent developments or missed papers). Make sure all queries cover the current year and will return the most recent and relevant papers first. Return strictly valid JSON with keys: 'arxiv', 'pubmed', 'web'."},
+        {"role": "user", "content": f"Query: {query}"}
+    ]
 
-    chain = prompt | llm
-    result = chain.invoke({"query": query})
+    response = llm.chat.completions.create(
+        model=get_model_name(),
+        messages=messages
+        # ,
+        # temperature=0
+    )
+    result_content = response.choices[0].message.content
 
-    scout_queries = parse_json(result.content)
+    scout_queries = parse_json(result_content)
 
     if not scout_queries:
-        print(f"Failed to parse JSON from supervisor: {result.content}")
+        print(f"Failed to parse JSON from supervisor: {result_content}")
         # Fallback
-        scout_queries = {'arxiv': query, 'semantic_scholar': query, 'web': query}
+        scout_queries = {'arxiv': query, 'pubmed': query, 'web': query}
 
     return {"scout_queries": scout_queries, "logs": [f"Supervisor generated queries: {scout_queries}"]}

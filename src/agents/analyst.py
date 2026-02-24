@@ -1,8 +1,8 @@
 import json
 import re
-from langchain_core.prompts import ChatPromptTemplate
+import os
 from src.state import ScientificDiscoveryState, Paper
-from src.llm import get_llm
+from src.llm import get_llm, get_model_name
 from typing import List, Dict, Any
 
 def parse_json(text):
@@ -31,21 +31,20 @@ def analyze_paper(paper: Paper, query: str, llm) -> Paper:
     # Let's cap at 20000 chars for safety/cost.
     text_snippet = text[:20000]
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a scientific analyst. Analyze the provided text in relation to the query: '{query}'. "
-                   "Extract the following information as a JSON object: "
-                   "1. relevance_score (integer 0-100), "
-                   "2. key_findings (string summary), "
-                   "3. methodology (string summary), "
-                   "4. limitations (string summary). "
-                   "If the text is not relevant, give a low score."),
-        ("human", "Text: {text}")
-    ])
+    messages = [
+        {"role": "system", "content": f"You are a scientific analyst. Analyze the provided text in relation to the query: '{query}'. Extract the following information as a JSON object: 1. relevance_score (integer 0-100), 2. key_findings (string summary), 3. methodology (string summary), 4. limitations (string summary). Note that academic papers are long and dense; if the general topic of the text aligns with the query, give it a high relevance score (e.g. 70-100). Only give a low score if the topic is completely unrelated."},
+        {"role": "user", "content": f"Text: {text_snippet}"}
+    ]
 
     try:
-        chain = prompt | llm
-        result = chain.invoke({"query": query, "text": text_snippet})
-        data = parse_json(result.content)
+        response = llm.chat.completions.create(
+            model=get_model_name(),
+            messages=messages
+            # ,
+            # temperature=0
+        )
+        result_content = response.choices[0].message.content
+        data = parse_json(result_content)
 
         if data:
             paper.relevance_score = float(data.get('relevance_score', 0))
@@ -53,7 +52,7 @@ def analyze_paper(paper: Paper, query: str, llm) -> Paper:
             paper.methodology = data.get('methodology', "Not found")
             paper.limitations = data.get('limitations', "Not found")
         else:
-             print(f"Failed to parse analysis JSON for {paper.title}: {result.content}")
+             print(f"Failed to parse analysis JSON for {paper.title}: {result_content}")
 
     except Exception as e:
         print(f"Error analyzing paper {paper.title}: {e}")
@@ -78,6 +77,7 @@ def analyst_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
         analyzed_paper = analyze_paper(paper, query, llm)
         updated_papers.append(analyzed_paper)
         logs.append(f"Analyzed {paper.title} (Score: {paper.relevance_score})")
+        print(f"Analyzed {paper.title} (Score: {paper.relevance_score})")
 
     return {"papers": updated_papers, "logs": logs}
 
@@ -105,19 +105,21 @@ def writer_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
         context += f"Methodology: {p.methodology}\n"
         context += f"Limitations: {p.limitations}\n\n"
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a scientific writer. Write a comprehensive Markdown report answering the query: '{query}'. "
-                   "Use the provided analysis of relevant papers. "
-                   "Cite sources using the provided DOIs or URLs. "
-                   "Structure the report with: Executive Summary, Key Findings, Methodologies, Limitations, and References."),
-        ("human", "Papers Analysis:\n{context}")
-    ])
+    messages = [
+        {"role": "system", "content": f"You are a scientific writer. Write a comprehensive Markdown report answering the query: '{query}'. Use the provided analysis of relevant papers. Cite sources using the provided DOIs or URLs. Structure the report with: Executive Summary, Key Findings, Methodologies, Limitations, and References."},
+        {"role": "user", "content": f"Papers Analysis:\n{context}"}
+    ]
 
     try:
-        chain = prompt | llm
-        result = chain.invoke({"query": query, "context": context})
-        report = result.content
+        response = llm.chat.completions.create(
+            model=get_model_name(),
+            messages=messages
+            # ,
+            # temperature=0
+        )
+        report = response.choices[0].message.content
         logs = ["Report generated successfully."]
+        print("Report generated successfully.")
     except Exception as e:
         report = f"Error generating report: {str(e)}"
         logs = [f"Writer error: {str(e)}"]

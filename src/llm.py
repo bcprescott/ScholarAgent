@@ -1,16 +1,19 @@
 import os
-from langchain_openai import AzureChatOpenAI
-from langchain_core.language_models import BaseChatModel
+from openai import AzureOpenAI, OpenAI
 
-class MockChatModel(BaseChatModel):
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        from langchain_core.outputs import ChatGeneration, ChatResult
-        from langchain_core.messages import AIMessage
+class MockChatCompletions:
+    def create(self, model=None, messages=None, **kwargs):
+        class MockMessage:
+            def __init__(self, content):
+                self.content = content
+        class MockChoice:
+            def __init__(self, message):
+                self.message = message
+        class MockResponse:
+            def __init__(self, choices):
+                self.choices = choices
 
-        # Simple mock logic
-        # messages is a list of BaseMessage
-        combined_text = "\n".join([m.content for m in messages])
-
+        combined_text = "\n".join([m["content"] for m in messages if isinstance(m, dict) and "content" in m])
         response = "Mock response"
 
         if "generate optimized search queries" in combined_text:
@@ -20,21 +23,37 @@ class MockChatModel(BaseChatModel):
         elif "scientific writer" in combined_text:
              response = "# Report\n\nThis is a mock report."
 
-        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=response))])
+        return MockResponse(choices=[MockChoice(message=MockMessage(content=response))])
 
-    @property
-    def _llm_type(self) -> str:
-        return "mock"
+class MockChat:
+    def __init__(self):
+        self.completions = MockChatCompletions()
 
-def get_llm() -> BaseChatModel:
-    if os.environ.get("MOCK_LLM") == "true" or not os.environ.get("AZURE_OPENAI_API_KEY"):
+class MockAzureOpenAI:
+    def __init__(self):
+        self.chat = MockChat()
+
+def get_model_name():
+    if os.environ.get("USE_LMSTUDIO") == "true":
+        return os.environ.get("LMSTUDIO_MODEL_NAME", "local-model")
+    return os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
+
+def get_llm():
+    if os.environ.get("MOCK_LLM") == "true":
         print("Using Mock LLM")
-        return MockChatModel()
+        return MockAzureOpenAI()
 
-    return AzureChatOpenAI(
-        azure_deployment=os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4"),
-        openai_api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2023-05-15"),
-        azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT"),
-        api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
-        temperature=0
+    if os.environ.get("USE_LMSTUDIO") == "true":
+        print("Using LM Studio API")
+        return OpenAI(base_url="http://localhost:1234/v1", api_key="lm-studio")
+
+    api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview").strip().strip('"').strip("'")
+    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "https://ragapp-openai.openai.azure.com/").strip().strip('"').strip("'")
+    api_key_env = os.environ.get("AZURE_OPENAI_API_KEY")
+    api_key = api_key_env.strip().strip('"').strip("'") if api_key_env else None
+
+    return AzureOpenAI(
+        api_version=api_version,
+        azure_endpoint=azure_endpoint,
+        api_key=api_key
     )
