@@ -2,7 +2,8 @@ import time
 import random
 import requests
 import fitz  # PyMuPDF
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError, BrowserContext
+import asyncio
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError, BrowserContext
 from playwright_stealth import Stealth
 from src.state import ScientificDiscoveryState, Paper
 from typing import Dict, Any, List
@@ -33,11 +34,11 @@ def fetch_pdf_text(url: str) -> str:
         print(f"Error fetching PDF {url}: {e}")
         raise e
 
-def fetch_web_text_with_context(context: BrowserContext, url: str) -> str:
+async def fetch_web_text_with_context(context: BrowserContext, url: str) -> str:
     """Fetches web page content using an existing Playwright context."""
     text = None
-    page = context.new_page()
-    Stealth().apply_stealth_sync(page)  # Apply stealth
+    page = await context.new_page()
+    await Stealth().apply_stealth_async(page)  # Apply stealth
 
     try:
         # We can implement retry logic manually here or use tenacity on a wrapper
@@ -46,23 +47,23 @@ def fetch_web_text_with_context(context: BrowserContext, url: str) -> str:
         # Let's use a nested function or manual loop for backoff inside here if needed?
         # Or better: make this function retryable.
 
-        page.goto(url, timeout=30000, wait_until="domcontentloaded")
-        time.sleep(2) # Wait for JS
-        text = page.evaluate("document.body.innerText")
+        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+        await asyncio.sleep(2) # Wait for JS
+        text = await page.evaluate("document.body.innerText")
 
     except Exception as e:
         print(f"Playwright error fetching {url}: {e}")
         raise e
     finally:
-        page.close()
+        await page.close()
 
     return text
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-def fetch_web_text_retry_wrapper(context: BrowserContext, url: str) -> str:
-    return fetch_web_text_with_context(context, url)
+async def fetch_web_text_retry_wrapper(context: BrowserContext, url: str) -> str:
+    return await fetch_web_text_with_context(context, url)
 
-def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
+async def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
     papers = state.get("papers", [])
     updated_papers = []
     logs = []
@@ -70,9 +71,9 @@ def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
     print(f"--- Fetcher Agent: Processing {len(papers)} papers ---")
 
     # Launch browser once
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
-        context = browser.new_context(
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        context = await browser.new_context(
             user_agent=random.choice(USER_AGENTS),
             viewport={"width": 1280, "height": 720}
         )
@@ -80,7 +81,7 @@ def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
         for i, paper in enumerate(papers):
             # Basic rate limiting
             if i > 0:
-                time.sleep(random.uniform(1, 3))
+                await asyncio.sleep(random.uniform(1, 3))
 
             if paper.full_text:
                 updated_papers.append(paper)
@@ -93,9 +94,9 @@ def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
                 # Determine strategy
                 # Arxiv URLs often don't end in .pdf but contain /pdf/
                 if paper.url and (paper.url.lower().endswith('.pdf') or '/pdf/' in paper.url.lower()):
-                    content = fetch_pdf_text(paper.url)
+                    content = await asyncio.to_thread(fetch_pdf_text, paper.url)
                 elif paper.url:
-                    content = fetch_web_text_retry_wrapper(context, paper.url)
+                    content = await fetch_web_text_retry_wrapper(context, paper.url)
             except Exception as e:
                 print(f"Failed to fetch {paper.url} after retries: {e}")
                 logs.append(f"Failed to fetch {paper.title}: {str(e)}")
@@ -110,6 +111,6 @@ def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
 
             updated_papers.append(paper)
 
-        browser.close()
+        await browser.close()
 
     return {"papers": updated_papers, "logs": logs}

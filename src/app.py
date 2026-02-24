@@ -26,12 +26,10 @@ async def on_message(message: cl.Message):
     final_report = "No report generated."
 
     try:
-        # We run the synchronous stream.
-        # Since Chainlit runs in an async loop, this will block the loop.
-        # For a single user, this is fine.
-        stream = app.stream(initial_state, stream_mode="updates")
+        # We run the asynchronous stream.
+        stream = app.astream(initial_state, stream_mode="updates")
 
-        for event in stream:
+        async for event in stream:
             for node, values in event.items():
 
                 # Supervisor
