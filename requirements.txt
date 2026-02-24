@@ -8,3 +8,4 @@ playwright
 playwright-stealth
 pymupdf
 tenacity
+chainlit

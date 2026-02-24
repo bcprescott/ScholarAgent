@@ -12,7 +12,7 @@ class TestScientificDiscovery(unittest.TestCase):
     @patch('src.agents.fetcher.sync_playwright')
     @patch('src.agents.fetcher.Stealth')  # Patch Stealth class
     @patch('src.agents.fetcher.fitz.open')
-    @patch('src.llm.AzureChatOpenAI')
+    @patch('src.llm.AzureOpenAI')
     def test_full_flow(self, mock_openai, mock_fitz, mock_stealth, mock_playwright, mock_requests, mock_tavily, mock_sem, mock_arxiv):
 
         print("Starting Test...")

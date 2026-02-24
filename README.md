@@ -57,6 +57,15 @@ Run the engine with a query:
 python src/main.py "LLM applications in oncology"
 ```
 
+### Web Interface
+
+You can also run the system with a web interface using Chainlit:
+
+```bash
+chainlit run src/app.py -w
+```
+This will launch a browser window where you can interact with the agents and visualize the research process.
+
 ## Output
 
 Results are saved in the `outputs/` directory:
