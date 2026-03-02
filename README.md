@@ -26,7 +26,7 @@ A multi-agent system built with LangGraph that mimics the 'Manus' architecture t
 2.  Install dependencies:
     ```bash
     pip install -r requirements.txt
-    playwright install chromium
+    python -m playwright install chromium
     ```
 
 ## Configuration

@@ -2,6 +2,10 @@ import asyncio
 import json
 import traceback
 from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
