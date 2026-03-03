@@ -17,7 +17,7 @@ USER_AGENTS = [
 def get_random_header():
     return {"User-Agent": random.choice(USER_AGENTS)}
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=5))
 def fetch_pdf_text(url: str) -> str:
     """Downloads PDF and extracts text using PyMuPDF with retries."""
     try:
@@ -33,9 +33,49 @@ def fetch_pdf_text(url: str) -> str:
         print(f"Error fetching PDF {url}: {e}")
         raise e
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-def fetch_web_text_sync(url: str) -> str:
-    """Fetches web page content using sync Playwright (runs in a thread)."""
+
+def fetch_web_text_simple(url: str) -> str:
+    """Fast web fetch using plain HTTP requests (no browser needed)."""
+    response = requests.get(url, headers=get_random_header(), timeout=15, allow_redirects=True)
+    response.raise_for_status()
+    content_type = response.headers.get('content-type', '')
+
+    # If it's a PDF disguised as a web page
+    if 'application/pdf' in content_type or url.lower().endswith('.pdf'):
+        with fitz.open(stream=response.content, filetype="pdf") as doc:
+            return "".join(page.get_text() for page in doc)
+
+    # For HTML, do a basic text extraction
+    from html.parser import HTMLParser
+
+    class TextExtractor(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.text_parts = []
+            self._skip = False
+            self._skip_tags = {'script', 'style', 'nav', 'footer', 'header'}
+
+        def handle_starttag(self, tag, attrs):
+            if tag in self._skip_tags:
+                self._skip = True
+
+        def handle_endtag(self, tag):
+            if tag in self._skip_tags:
+                self._skip = False
+
+        def handle_data(self, data):
+            if not self._skip:
+                stripped = data.strip()
+                if stripped:
+                    self.text_parts.append(stripped)
+
+    extractor = TextExtractor()
+    extractor.feed(response.text)
+    return '\n'.join(extractor.text_parts)
+
+
+def fetch_web_text_playwright(url: str) -> str:
+    """Fallback: fetches web page content using Playwright (heavy, slow)."""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
         context = browser.new_context(
@@ -45,8 +85,8 @@ def fetch_web_text_sync(url: str) -> str:
         page = context.new_page()
         text = None
         try:
-            page.goto(url, timeout=30000, wait_until="domcontentloaded")
-            time.sleep(2)  # Wait for JS
+            page.goto(url, timeout=20000, wait_until="domcontentloaded")
+            time.sleep(1)  # Reduced from 2s
             text = page.evaluate("document.body.innerText")
         except Exception as e:
             print(f"Playwright error fetching {url}: {e}")
@@ -56,44 +96,78 @@ def fetch_web_text_sync(url: str) -> str:
             browser.close()
     return text
 
-async def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
-    papers = state.get("papers", [])
-    updated_papers = []
-    logs = []
 
-    print(f"--- Fetcher Agent: Processing {len(papers)} papers ---")
-
-    for i, paper in enumerate(papers):
-        # Basic rate limiting
-        if i > 0:
-            await asyncio.sleep(random.uniform(1, 3))
-
+async def fetch_single_paper(paper: Paper, semaphore: asyncio.Semaphore) -> tuple:
+    """Fetch a single paper's content with concurrency control."""
+    async with semaphore:
         if paper.full_text:
-            updated_papers.append(paper)
-            continue
+            return paper, None, True
 
         print(f"Fetching: {paper.title} ({paper.url})")
         content = None
 
         try:
-            # Determine strategy
-            # Arxiv URLs often don't end in .pdf but contain /pdf/
-            if paper.url and (paper.url.lower().endswith('.pdf') or '/pdf/' in paper.url.lower()):
+            is_pdf = paper.url and (paper.url.lower().endswith('.pdf') or '/pdf/' in paper.url.lower())
+
+            if is_pdf:
                 content = await asyncio.to_thread(fetch_pdf_text, paper.url)
-            elif paper.url:
-                content = await asyncio.to_thread(fetch_web_text_sync, paper.url)
+            else:
+                # Try fast HTTP first, fall back to Playwright only if needed
+                try:
+                    content = await asyncio.wait_for(
+                        asyncio.to_thread(fetch_web_text_simple, paper.url),
+                        timeout=15
+                    )
+                    # If we got very little text, the page probably needs JS rendering
+                    if content and len(content.strip()) < 200:
+                        print(f"  Simple fetch got minimal text, trying Playwright for {paper.title}")
+                        content = await asyncio.wait_for(
+                            asyncio.to_thread(fetch_web_text_playwright, paper.url),
+                            timeout=25
+                        )
+                except Exception:
+                    # Fall back to Playwright
+                    print(f"  Simple fetch failed, trying Playwright for {paper.title}")
+                    try:
+                        content = await asyncio.wait_for(
+                            asyncio.to_thread(fetch_web_text_playwright, paper.url),
+                            timeout=25
+                        )
+                    except Exception as e2:
+                        print(f"  Playwright also failed for {paper.title}: {e2}")
+
         except Exception as e:
-            print(f"Failed to fetch {paper.url} after retries: {e}")
-            logs.append(f"Failed to fetch {paper.title}: {str(e)}")
+            print(f"Failed to fetch {paper.url}: {e}")
+            return paper, f"Failed to fetch {paper.title}: {str(e)}", False
 
         if content:
             paper.full_text = content
-            logs.append(f"Successfully fetched {paper.title}")
             print(f"Successfully fetched {paper.title}")
+            return paper, f"Successfully fetched {paper.title}", True
         else:
-            if not content:  # Log only if not already logged via exception
-                logs.append(f"Failed to fetch content for {paper.title} (empty result)")
+            return paper, f"Failed to fetch content for {paper.title} (empty result)", False
 
+
+async def fetcher_agent(state: ScientificDiscoveryState) -> Dict[str, Any]:
+    papers = state.get("papers", [])
+    logs = []
+
+    print(f"--- Fetcher Agent: Processing {len(papers)} papers (parallel) ---")
+
+    # Fetch up to 4 papers concurrently
+    semaphore = asyncio.Semaphore(4)
+    tasks = [fetch_single_paper(paper, semaphore) for paper in papers]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    updated_papers = []
+    for result in results:
+        if isinstance(result, Exception):
+            print(f"Fetch task failed: {result}")
+            logs.append(f"Fetch error: {str(result)}")
+            continue
+        paper, log_msg, success = result
         updated_papers.append(paper)
+        if log_msg:
+            logs.append(log_msg)
 
     return {"papers": updated_papers, "logs": logs}

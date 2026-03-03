@@ -11,3 +11,5 @@ tenacity
 chainlit
 fastapi
 uvicorn
+rapidfuzz
+python-dotenv

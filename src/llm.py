@@ -2,7 +2,7 @@ import os
 from openai import AzureOpenAI, OpenAI
 
 class MockChatCompletions:
-    def create(self, model=None, messages=None, **kwargs):
+    def create(self, model=None, messages=None, response_format=None, **kwargs):
         class MockMessage:
             def __init__(self, content):
                 self.content = content
@@ -16,12 +16,28 @@ class MockChatCompletions:
         combined_text = "\n".join([m["content"] for m in messages if isinstance(m, dict) and "content" in m])
         response = "Mock response"
 
-        if "generate optimized search queries" in combined_text:
-             response = '{"arxiv": "LLM oncology", "semantic_scholar": "LLM applications in cancer treatment", "web": "LLM oncology pdf"}'
-        elif "Analyze the provided text" in combined_text or "relevance_score" in combined_text:
-             response = '{"relevance_score": 85, "key_findings": "Found interesting things.", "methodology": "Survey.", "limitations": "Limited scope."}'
-        elif "scientific writer" in combined_text:
-             response = "# Report\n\nThis is a mock report."
+        if "research supervisor" in combined_text.lower() or "generate optimized search queries" in combined_text.lower():
+             response = json.dumps({
+                 "arxiv": "LLM oncology",
+                 "pubmed": "large language models cancer treatment",
+                 "semantic_scholar": "LLM applications in cancer treatment",
+                 "web": "LLM oncology recent developments",
+                 "openalex": "artificial intelligence oncology clinical",
+                 "biorxiv": "machine learning cancer genomics"
+             })
+        elif "scientific analyst" in combined_text.lower() or "relevance_score" in combined_text.lower():
+             response = json.dumps({
+                 "relevance_score": 85,
+                 "key_findings": "Found interesting things.",
+                 "methodology": "Survey.",
+                 "limitations": "Limited scope.",
+                 "study_type": "review",
+                 "evidence_level": "Level III",
+                 "sample_size": None,
+                 "confidence_notes": "Moderate confidence based on review methodology."
+             })
+        elif "scientific writer" in combined_text.lower():
+             response = "# Report\n\n## Executive Summary\n\nThis is a mock report.\n\n## Key Findings\n\nMock findings.\n\n## Research Gaps\n\nMock gaps."
 
         return MockResponse(choices=[MockChoice(message=MockMessage(content=response))])
 
@@ -57,3 +73,6 @@ def get_llm():
         azure_endpoint=azure_endpoint,
         api_key=api_key
     )
+
+# Need json import for mock
+import json

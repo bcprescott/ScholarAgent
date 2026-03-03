@@ -4,6 +4,8 @@ import json
 import re
 import os
 
+ALL_SCOUT_KEYS = ['arxiv', 'pubmed', 'semantic_scholar', 'web', 'openalex', 'biorxiv']
+
 def parse_json(text):
     try:
         # Try finding JSON block
@@ -19,23 +21,47 @@ def supervisor_agent(state: ScientificDiscoveryState):
     query = state['query']
 
     messages = [
-        {"role": "system", "content": "You are a research supervisor. Given the user query, generate 3 optimized search queries, one for each repository: 1. 'arxiv' (focus on technical/scientific terms), 2. 'pubmed' (medical/clinical keywords), 3. 'web' (broad search for recent developments or missed papers). Make sure all queries cover the current year and will return the most recent and relevant papers first. Return strictly valid JSON with keys: 'arxiv', 'pubmed', 'web'."},
+        {"role": "system", "content": (
+            "You are a research supervisor. Given the user query, generate optimized search queries "
+            "for each of the following 6 academic repositories:\n"
+            "1. 'arxiv' — focus on technical/scientific terms, physics, CS, math\n"
+            "2. 'pubmed' — medical/clinical/biomedical keywords\n"
+            "3. 'semantic_scholar' — broad academic search with precise terminology\n"
+            "4. 'web' — broad search for recent developments, news, or grey literature\n"
+            "5. 'openalex' — cross-disciplinary academic search, social sciences, humanities, engineering\n"
+            "6. 'biorxiv' — preprint search for cutting-edge biological/medical research\n\n"
+            "CRITICAL RULES:\n"
+            "- Generate PLAIN TEXT keyword queries ONLY. Do NOT use any API-specific syntax.\n"
+            "- Do NOT include field prefixes (e.g., title:, abstract:, submittedDate:), date filters, "
+            "boolean operators (AND/OR), or any special query language.\n"
+            "- Just use natural language keywords and phrases that describe what to search for.\n"
+            "- Each query should be a short phrase of 3-8 words tailored to that repository's domain.\n"
+            "- Include recent/current year terms naturally (e.g., '2025' or 'recent advances').\n\n"
+            "Return strictly valid JSON with keys: 'arxiv', 'pubmed', 'semantic_scholar', "
+            "'web', 'openalex', 'biorxiv'."
+        )},
         {"role": "user", "content": f"Query: {query}"}
     ]
 
-    response = llm.chat.completions.create(
-        model=get_model_name(),
-        messages=messages
-        # ,
-        # temperature=0
-    )
-    result_content = response.choices[0].message.content
-
-    scout_queries = parse_json(result_content)
+    try:
+        response = llm.chat.completions.create(
+            model=get_model_name(),
+            messages=messages,
+            response_format={"type": "json_object"}
+        )
+        result_content = response.choices[0].message.content
+        scout_queries = parse_json(result_content)
+    except Exception as e:
+        print(f"Supervisor LLM error: {e}")
+        scout_queries = None
 
     if not scout_queries:
-        print(f"Failed to parse JSON from supervisor: {result_content}")
-        # Fallback
-        scout_queries = {'arxiv': query, 'pubmed': query, 'web': query}
+        print(f"Failed to parse JSON from supervisor, using fallback queries.")
+        scout_queries = {key: query for key in ALL_SCOUT_KEYS}
+
+    # Ensure all keys exist (fill in missing ones with raw query)
+    for key in ALL_SCOUT_KEYS:
+        if key not in scout_queries:
+            scout_queries[key] = query
 
     return {"scout_queries": scout_queries, "logs": [f"Supervisor generated queries: {scout_queries}"]}

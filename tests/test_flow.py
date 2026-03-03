@@ -1,7 +1,8 @@
 import os
+import asyncio
 import unittest
 from unittest.mock import patch, MagicMock
-from src.state import ScientificDiscoveryState, Paper
+from src.state import ScientificDiscoveryState, Paper, ResearchConfig
 from src.graph import build_graph
 
 class TestScientificDiscovery(unittest.TestCase):
@@ -10,10 +11,9 @@ class TestScientificDiscovery(unittest.TestCase):
     @patch('src.agents.scouts.TavilyClient')
     @patch('src.agents.fetcher.requests.get')
     @patch('src.agents.fetcher.sync_playwright')
-    @patch('src.agents.fetcher.Stealth')  # Patch Stealth class
     @patch('src.agents.fetcher.fitz.open')
     @patch('src.llm.AzureOpenAI')
-    def test_full_flow(self, mock_openai, mock_fitz, mock_stealth, mock_playwright, mock_requests, mock_tavily, mock_sem, mock_arxiv):
+    def test_full_flow(self, mock_openai, mock_fitz, mock_playwright, mock_requests, mock_tavily, mock_sem, mock_arxiv):
 
         print("Starting Test...")
         # Force MOCK_LLM
@@ -34,7 +34,6 @@ class TestScientificDiscovery(unittest.TestCase):
         mock_arxiv_result.published = "2023-01-01"
         mock_arxiv_result.doi = "10.1234/arxiv"
 
-        # Ensure results() returns an iterator
         mock_arxiv_instance.results.return_value = [mock_arxiv_result]
 
         # Mock Semantic Scholar
@@ -47,7 +46,7 @@ class TestScientificDiscovery(unittest.TestCase):
         mock_sem_paper.publicationDate = "2023-02-01"
         mock_sem_paper.externalIds = {'DOI': "10.1234/sem"}
         mock_sem_paper.paperId = '123'
-        # Emulate hasattr(item, 'raw_data') logic - not strictly needed if mock behaves well
+        mock_sem_paper.openAccessPdf = None
 
         mock_sem_instance.search_paper.return_value = [mock_sem_paper]
 
@@ -87,24 +86,35 @@ class TestScientificDiscovery(unittest.TestCase):
         print("Building Graph...")
         app = build_graph()
 
+        # Only enable the scouts that have mocks
+        config = ResearchConfig(
+            max_results_per_source=5,
+            enabled_sources=["arxiv", "pubmed", "semantic_scholar", "web"]
+        )
+
         initial_state = ScientificDiscoveryState(
             query="LLM in oncology",
             scout_queries={},
             papers=[],
             report="",
-            logs=[]
+            logs=[],
+            config=config,
         )
 
-        print("Running Graph...")
-        final_state = app.invoke(initial_state)
+        print("Running Graph (async)...")
+        # Graph now has async nodes, so we must use ainvoke
+        final_state = asyncio.run(app.ainvoke(initial_state))
 
         # --- ASSERTIONS ---
 
         print("Asserting Results...")
         self.assertGreater(len(final_state['papers']), 0)
 
-        # Check if Supervisor ran
+        # Check if Supervisor ran — should include all scout keys
         self.assertTrue('arxiv' in final_state['scout_queries'])
+        self.assertTrue('semantic_scholar' in final_state['scout_queries'])
+        self.assertTrue('openalex' in final_state['scout_queries'])
+        self.assertTrue('biorxiv' in final_state['scout_queries'])
 
         # Check if papers were fetched
         fetched_texts = [p.full_text for p in final_state['papers'] if p.full_text]
@@ -113,13 +123,55 @@ class TestScientificDiscovery(unittest.TestCase):
 
         # Check if analyzed (relevance score > 0)
         analyzed = [p for p in final_state['papers'] if p.relevance_score > 0]
-        # In mock LLM, we return a fixed JSON with score 85
         self.assertGreater(len(analyzed), 0)
+
+        # Check new evidence grading fields
+        for paper in analyzed:
+            self.assertIsNotNone(paper.study_type, f"study_type should be set for {paper.title}")
+            self.assertIsNotNone(paper.evidence_level, f"evidence_level should be set for {paper.title}")
 
         # Check Report
         self.assertIn("Report", final_state['report'])
 
         print("Test Passed!")
+
+    def test_paper_dedup_by_doi(self):
+        """Test that merge_papers deduplicates by DOI."""
+        from src.state import merge_papers
+
+        paper1 = Paper(title="Paper A", url="http://a.com", source="arxiv", doi="10.1234/test")
+        paper2 = Paper(title="Paper A (copy)", url="http://b.com", source="pubmed", doi="10.1234/test")
+        paper3 = Paper(title="Paper B", url="http://c.com", source="web", doi="10.5678/other")
+
+        result = merge_papers([paper1], [paper2, paper3])
+        self.assertEqual(len(result), 2)  # paper2 should be deduped via DOI
+        urls = {p.url for p in result}
+        self.assertIn("http://a.com", urls)
+        self.assertIn("http://c.com", urls)
+        print("DOI dedup test passed!")
+
+    def test_paper_dedup_by_title(self):
+        """Test that merge_papers deduplicates by fuzzy title match."""
+        from src.state import merge_papers
+
+        paper1 = Paper(title="Deep Learning for Cancer Detection", url="http://a.com", source="arxiv")
+        paper2 = Paper(title="deep learning for cancer detection", url="http://b.com", source="pubmed")  # same title, different case
+        paper3 = Paper(title="Something Completely Different", url="http://c.com", source="web")
+
+        result = merge_papers([paper1], [paper2, paper3])
+        self.assertEqual(len(result), 2)  # paper2 should be deduped via title
+        print("Title dedup test passed!")
+
+    def test_research_config_defaults(self):
+        """Test ResearchConfig default values."""
+        config = ResearchConfig()
+        self.assertEqual(config.max_results_per_source, 10)
+        self.assertEqual(config.relevance_threshold, 50.0)
+        self.assertEqual(len(config.enabled_sources), 6)
+        self.assertTrue(config.fetch_full_text)
+        self.assertEqual(config.max_paper_chars, 20000)
+        print("Config defaults test passed!")
+
 
 if __name__ == '__main__':
     unittest.main()
