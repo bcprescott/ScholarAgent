@@ -54,6 +54,7 @@ def build_graph():
     workflow.add_node("writer", writer_agent)
 
     # Pipeline: supervisor → scouts → citation_explorer → fetcher → analyst → writer
+    # Note: fetcher includes built-in keyword pre-filtering to skip irrelevant papers
     workflow.set_entry_point("supervisor")
     workflow.add_edge("supervisor", "scouts")
     workflow.add_edge("scouts", "citation_explorer")
