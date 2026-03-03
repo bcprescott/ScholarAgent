@@ -120,7 +120,7 @@ def _build_payload(node: str, values: dict) -> dict | None:
     if node == "analyst":
         papers = values.get("papers", [])
         analyzed = sum(1 for p in papers if p.relevance_score > 0 or p.key_findings)
-        top = sorted(papers, key=lambda p: p.relevance_score, reverse=True)[:5]
+        all_sorted = sorted(papers, key=lambda p: p.relevance_score, reverse=True)
         return {
             "event": "analyst",
             "analyzed": analyzed,
@@ -133,7 +133,7 @@ def _build_payload(node: str, values: dict) -> dict | None:
                     "study_type": p.study_type,
                     "evidence_level": p.evidence_level,
                 }
-                for p in top
+                for p in all_sorted
             ],
         }
 

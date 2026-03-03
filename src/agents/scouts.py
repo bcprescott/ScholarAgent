@@ -8,7 +8,6 @@ import arxiv
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from tavily import TavilyClient
-from semanticscholar import SemanticScholar
 from src.state import ScientificDiscoveryState, Paper
 
 # --- Helpers ---
@@ -208,42 +207,50 @@ def arxiv_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
         return {"papers": [], "logs": [f"ArXiv error: {str(e)}"]}
 
 def semantic_scholar_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
+    """Semantic Scholar scout using direct HTTP API (avoids library connection issues)."""
     query = state.get('scout_queries', {}).get('semantic_scholar', state['query'])
     max_results = _get_max_results(state)
     print(f"--- Semantic Scholar Scout searching for: {query} (max: {max_results}) ---")
 
     try:
-        sch = SemanticScholar(timeout=10, retry=False)
+        fields = 'title,url,abstract,authors,publicationDate,externalIds,openAccessPdf,paperId'
+        params = urllib.parse.urlencode({
+            'query': query,
+            'limit': max_results,
+            'fields': fields,
+        })
+        api_url = f"https://api.semanticscholar.org/graph/v1/paper/search?{params}"
+
+        req = urllib.request.Request(api_url, headers={
+            'User-Agent': 'ScholarAgent/1.0',
+            'Accept': 'application/json'
+        })
+
         max_retries = 3
-        results = None
+        data = None
         for attempt in range(max_retries):
             try:
-                results = sch.search_paper(query, limit=max_results, fields=['title', 'url', 'abstract', 'authors', 'publicationDate', 'externalIds', 'openAccessPdf'])
-                break  # Success
-            except Exception as search_val_e:
-                if "429" in str(search_val_e) or "Too Many Requests" in str(search_val_e):
-                    if attempt < max_retries - 1:
-                        sleep_time = 2 ** attempt * 2
-                        print(f"Semantic Scholar rate limited (429). Retrying in {sleep_time} seconds...")
-                        time.sleep(sleep_time)
-                    else:
-                        print(f"Semantic Scholar rate limit exceeded after {max_retries} attempts.")
-                        raise search_val_e
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    data = json.loads(response.read().decode())
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    sleep_time = 2 ** attempt * 2
+                    print(f"Semantic Scholar rate limited (429). Retrying in {sleep_time}s...")
+                    time.sleep(sleep_time)
                 else:
-                    raise search_val_e
+                    raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                else:
+                    raise
 
         papers = []
-        if results:
-            for item in results:
+        if data and 'data' in data:
+            for item in data['data']:
                 try:
-                    paper_dict = {}
-                    for field in ['title', 'url', 'abstract', 'authors', 'publicationDate', 'externalIds', 'openAccessPdf', 'paperId']:
-                        if hasattr(item, field):
-                            paper_dict[field] = getattr(item, field)
-                        elif isinstance(item, dict):
-                            paper_dict[field] = item.get(field)
-
-                    papers.append(create_paper_from_semanticscholar(paper_dict))
+                    papers.append(create_paper_from_semanticscholar(item))
                 except Exception as e:
                     print(f"Error processing semantic scholar item: {e}")
                     continue

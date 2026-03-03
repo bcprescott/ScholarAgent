@@ -300,18 +300,21 @@ function buildFetcherBody(data) {
 
 function buildAnalystBody(data) {
   let html = '<div class="card-content">';
-  html += `<p>Analyzed <strong style="color:var(--text)">${data.analyzed}</strong> papers. Top results:</p>`;
+  html += `<p>Analyzed <strong style="color:var(--text)">${data.analyzed}</strong> papers — sorted by relevance:</p>`;
 
   if (data.top_papers && data.top_papers.length > 0) {
-    html += '<div style="margin-top:0.5rem">';
+    html += '<div style="margin-top:0.5rem;border-top:1px solid var(--border);padding-top:0.5rem">';
     for (const p of data.top_papers) {
       const scoreColor = p.score >= 70 ? 'var(--green)' : p.score >= 40 ? 'var(--amber)' : 'var(--rose)';
       const scorePct = Math.min(p.score, 100);
+      const studyInfo = p.study_type ? ` · ${p.study_type}` : '';
+      const evidenceInfo = p.evidence_level ? ` · ${p.evidence_level}` : '';
       html += `<div class="paper-item">
         <div class="paper-title"><a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.title)}</a></div>
         <div class="paper-meta">
           Relevance: <strong style="color:${scoreColor}">${p.score}</strong>/100
           <span class="score-bar-bg"><span class="score-bar-fill" style="width:${scorePct}%;background:${scoreColor}"></span></span>
+          <span style="margin-left:0.5rem;color:var(--text-dim)">${escapeHtml(studyInfo)}${escapeHtml(evidenceInfo)}</span>
         </div>
         ${p.findings ? `<div class="paper-meta" style="margin-top:0.2rem;color:var(--text-dim)">${escapeHtml(truncate(p.findings, 180))}</div>` : ''}
       </div>`;
