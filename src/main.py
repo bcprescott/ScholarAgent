@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import os
 import sys
 
@@ -11,20 +12,17 @@ except ImportError:
 from src.graph import build_graph
 from src.state import ScientificDiscoveryState
 
-def main():
-    parser = argparse.ArgumentParser(description="Scientific Discovery Engine")
-    parser.add_argument("query", help="The research query")
-    args = parser.parse_args()
 
+async def run_research(query: str):
     # Ensure outputs dir exists
     os.makedirs("outputs", exist_ok=True)
 
-    print(f"Starting research on: {args.query}")
+    print(f"Starting research on: {query}")
 
     app = build_graph()
 
     initial_state = ScientificDiscoveryState(
-        query=args.query,
+        query=query,
         scout_queries={},
         papers=[],
         report="",
@@ -32,13 +30,9 @@ def main():
     )
 
     try:
-        # LangGraph stream returns state updates as they happen
-        # We use stream_mode="values" to get the full state after each step
         final_state = initial_state
-        for state in app.stream(initial_state, stream_mode="values"):
+        async for state in app.astream(initial_state, stream_mode="values"):
             final_state = state
-            # We don't have the node name directly here but we can stream values
-            # Alternatively we could have kept the default mode but used app.get_state()
             print("Step finished...")
 
         report = final_state.get("report", "No report generated.")
@@ -62,6 +56,15 @@ def main():
         print(f"Error executing graph: {e}")
         import traceback
         traceback.print_exc()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Scientific Discovery Engine")
+    parser.add_argument("query", help="The research query")
+    args = parser.parse_args()
+
+    asyncio.run(run_research(args.query))
+
 
 if __name__ == "__main__":
     main()

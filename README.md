@@ -57,6 +57,23 @@ Run the engine with a query:
 python src/main.py "LLM applications in oncology"
 ```
 
+### Web Interface (Recommended)
+
+Launch the animated web UI powered by FastAPI:
+
+```bash
+uvicorn src.web_app:app --reload
+```
+Then open [http://localhost:8000](http://localhost:8000). The interface shows a real-time animated pipeline as each agent executes, with expandable detail cards and a rendered markdown report at the end.
+
+### Chainlit Interface (Legacy)
+
+You can also run the system with the Chainlit chat interface:
+
+```bash
+chainlit run src/app.py -w
+```
+
 ## Output
 
 Results are saved in the `outputs/` directory:

@@ -8,3 +8,6 @@ playwright
 playwright-stealth
 pymupdf
 tenacity
+chainlit
+fastapi
+uvicorn
