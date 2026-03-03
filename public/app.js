@@ -2,12 +2,13 @@
    ScholarAgent — Frontend Application Logic
    ============================================ */
 
-const NODES = ['supervisor', 'scouts', 'fetcher', 'analyst', 'writer'];
-const CONNECTORS = ['conn-1', 'conn-2', 'conn-3', 'conn-4'];
+const NODES = ['supervisor', 'scouts', 'citation_explorer', 'fetcher', 'analyst', 'writer'];
+const CONNECTORS = ['conn-1', 'conn-2', 'conn-3', 'conn-4', 'conn-5'];
 
 const NODE_LABELS = {
   supervisor: 'Planning search strategy...',
-  scouts: 'Searching across databases...',
+  scouts: 'Searching across 6 databases...',
+  citation_explorer: 'Exploring citation graph...',
   fetcher: 'Fetching full-text papers...',
   analyst: 'Analyzing papers...',
   writer: 'Writing research report...',
@@ -16,6 +17,7 @@ const NODE_LABELS = {
 const CARD_ICONS = {
   supervisor: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>`,
   scouts: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>`,
+  citation_explorer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" /></svg>`,
   fetcher: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>`,
   analyst: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-3 2.148 2.148A12.061 12.061 0 0116.5 7.605" /></svg>`,
   writer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>`,
@@ -24,6 +26,7 @@ const CARD_ICONS = {
 const CARD_TITLES = {
   supervisor: 'Supervisor Agent',
   scouts: 'Scout Agents',
+  citation_explorer: 'Citation Explorer',
   fetcher: 'Fetcher Agent',
   analyst: 'Analyst Agent',
   writer: 'Writer Agent',
@@ -210,6 +213,10 @@ function addDetailCard(event, data) {
       badge = `${data.total} papers`;
       body = buildScoutsBody(data);
       break;
+    case 'citation_explorer':
+      badge = `${data.discovered} discovered`;
+      body = buildCitationExplorerBody(data);
+      break;
     case 'fetcher':
       badge = `${data.fetched}/${data.total} fetched`;
       body = buildFetcherBody(data);
@@ -280,6 +287,28 @@ function buildScoutsBody(data) {
         <div class="paper-title"><a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.title)}</a></div>
         <div class="paper-meta">${escapeHtml(p.source)}</div>
       </div>`;
+    }
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function buildCitationExplorerBody(data) {
+  let html = '<div class="card-content">';
+  html += `<p>Discovered <strong style="color:var(--text)">${data.discovered}</strong> additional papers via citation graph traversal.</p>`;
+
+  if (data.papers && data.papers.length > 0) {
+    html += '<div style="margin-top:0.75rem;border-top:1px solid var(--border);padding-top:0.5rem">';
+    for (const p of data.papers.slice(0, 15)) {
+      html += `<div class="paper-item">
+        <div class="paper-title"><a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.title)}</a></div>
+        <div class="paper-meta">${escapeHtml(p.source)}</div>
+      </div>`;
+    }
+    if (data.papers.length > 15) {
+      html += `<div class="paper-meta" style="text-align:center;margin-top:0.5rem">...and ${data.papers.length - 15} more</div>`;
     }
     html += '</div>';
   }

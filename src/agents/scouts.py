@@ -1,6 +1,7 @@
 import os
 import time
 import urllib.request
+import urllib.parse
 import json
 import xml.etree.ElementTree as ET
 import arxiv
@@ -9,12 +10,14 @@ from tavily import TavilyClient
 from semanticscholar import SemanticScholar
 from src.state import ScientificDiscoveryState, Paper
 
+MAX_RESULTS = 10
+
 # --- Helpers ---
 
 def create_paper_from_arxiv(result: arxiv.Result) -> Paper:
     return Paper(
         title=result.title,
-        url=result.pdf_url, # Prefer PDF URL for fetching
+        url=result.pdf_url,  # Prefer PDF URL for fetching
         abstract=result.summary,
         source="arxiv",
         doi=result.doi,
@@ -23,15 +26,14 @@ def create_paper_from_arxiv(result: arxiv.Result) -> Paper:
     )
 
 def create_paper_from_semanticscholar(paper: dict) -> Paper:
-    # Semantic Scholar returns a dict-like object
-    # handle potential missing fields
     url = paper.get('url') or (paper.get('openAccessPdf') or {}).get('url')
     if not url:
-        # If no URL, try to construct one or use DOI
         if paper.get('externalIds', {}).get('DOI'):
             url = f"https://doi.org/{paper['externalIds']['DOI']}"
-        else:
+        elif paper.get('paperId'):
             url = f"https://www.semanticscholar.org/paper/{paper['paperId']}"
+        else:
+            url = f"https://www.semanticscholar.org/search?q={urllib.parse.quote(paper.get('title', ''))}"
 
     pub_date = paper.get('publicationDate')
 
@@ -41,7 +43,7 @@ def create_paper_from_semanticscholar(paper: dict) -> Paper:
         abstract=paper.get('abstract'),
         source="semantic_scholar",
         doi=paper.get('externalIds', {}).get('DOI'),
-        authors=[a['name'] for a in paper.get('authors', [])],
+        authors=[a['name'] for a in paper.get('authors', []) if isinstance(a, dict) and 'name' in a],
         publication_date=str(pub_date) if pub_date is not None else None
     )
 
@@ -49,34 +51,39 @@ def create_paper_from_tavily(result: dict) -> Paper:
     return Paper(
         title=result.get('title', 'Unknown Title'),
         url=result.get('url'),
-        abstract=result.get('content'), # Tavily returns snippets in 'content'
+        abstract=result.get('content'),
         source="web",
-        doi=None # Web search might not provide DOI easily
+        doi=None
     )
 
 def create_paper_from_pubmed(article_element) -> Paper:
-    # Basic XML parsing for Pubmed Article
     title = "Unknown Title"
     article_title_element = article_element.find('.//ArticleTitle')
     if article_title_element is not None and article_title_element.text:
         title = article_title_element.text
-    
+
     abstractText = ""
     for abs_text in article_element.findall('.//AbstractText'):
         if abs_text.text:
             abstractText += abs_text.text + " "
-    
+
     doi = None
     for elId in article_element.findall('.//ArticleId'):
         if elId.get('IdType') == 'doi':
             doi = elId.text
             break
-            
-    pmid = article_element.find('.//PMID').text
-    url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+
+    pmid = None
+    pmid_el = article_element.find('.//PMID')
+    if pmid_el is not None and pmid_el.text:
+        pmid = pmid_el.text
+
+    url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else None
     if doi:
         url = f"https://doi.org/{doi}"
-        
+    if not url:
+        url = f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(title)}"
+
     authors = []
     for author in article_element.findall('.//Author'):
         last_name = author.find('LastName')
@@ -86,11 +93,11 @@ def create_paper_from_pubmed(article_element) -> Paper:
             if initials is not None and initials.text:
                 name += f" {initials.text}"
             authors.append(name)
-            
+
     pub_date = ""
     pub_date_el = article_element.find('.//PubDate/Year')
     if pub_date_el is not None:
-         pub_date = pub_date_el.text
+        pub_date = pub_date_el.text
 
     return Paper(
         title=title,
@@ -102,6 +109,86 @@ def create_paper_from_pubmed(article_element) -> Paper:
         publication_date=pub_date
     )
 
+
+def reconstruct_abstract_from_inverted_index(inverted_index: dict) -> str:
+    """OpenAlex stores abstracts as inverted indexes. Reconstruct to plain text."""
+    if not inverted_index:
+        return None
+    word_positions = []
+    for word, positions in inverted_index.items():
+        for pos in positions:
+            word_positions.append((pos, word))
+    word_positions.sort(key=lambda x: x[0])
+    return " ".join(word for _, word in word_positions)
+
+
+def create_paper_from_openalex(work: dict) -> Paper:
+    doi_raw = work.get('doi')  # e.g. "https://doi.org/10.1234/xxx"
+    doi = doi_raw.replace("https://doi.org/", "") if doi_raw else None
+
+    # Find the best URL
+    primary_loc = work.get('primary_location') or {}
+    pdf_url = primary_loc.get('pdf_url')
+    landing_url = primary_loc.get('landing_page_url')
+    oa_url = (work.get('open_access') or {}).get('oa_url')
+    url = pdf_url or oa_url or landing_url or (f"https://doi.org/{doi}" if doi else work.get('id', ''))
+
+    authors = []
+    for authorship in work.get('authorships', []):
+        author = authorship.get('author', {})
+        name = author.get('display_name')
+        if name:
+            authors.append(name)
+
+    abstract = reconstruct_abstract_from_inverted_index(work.get('abstract_inverted_index'))
+
+    return Paper(
+        title=work.get('title') or work.get('display_name') or 'Unknown Title',
+        url=url,
+        abstract=abstract,
+        source="openalex",
+        doi=doi,
+        authors=authors,
+        publication_date=work.get('publication_date')
+    )
+
+
+def create_paper_from_europe_pmc(result: dict) -> Paper:
+    doi = result.get('doi')
+    pmid = result.get('pmid')
+
+    # Find best URL
+    url = None
+    if doi:
+        url = f"https://doi.org/{doi}"
+    elif pmid:
+        url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+    else:
+        url = f"https://europepmc.org/article/{result.get('source', 'MED')}/{result.get('id', '')}"
+
+    # Try to get full-text PDF URL
+    full_text_urls = result.get('fullTextUrlList', {}).get('fullTextUrl', [])
+    for ft in full_text_urls:
+        if ft.get('documentStyle') == 'pdf' and ft.get('url'):
+            url = ft['url']
+            break
+
+    authors = []
+    author_str = result.get('authorString', '')
+    if author_str:
+        authors = [a.strip() for a in author_str.split(',')]
+
+    return Paper(
+        title=result.get('title', 'Unknown Title'),
+        url=url,
+        abstract=result.get('abstractText'),
+        source="europe_pmc",
+        doi=doi,
+        authors=authors,
+        publication_date=result.get('pubYear')
+    )
+
+
 # --- Scouts ---
 
 def arxiv_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
@@ -112,7 +199,7 @@ def arxiv_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
         client = arxiv.Client()
         search = arxiv.Search(
             query=query,
-            max_results=5,
+            max_results=MAX_RESULTS,
             sort_by=arxiv.SortCriterion.Relevance
         )
         results = list(client.results(search))
@@ -129,18 +216,16 @@ def semantic_scholar_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
 
     try:
         sch = SemanticScholar(timeout=10, retry=False)
-        # We will manually handle retries for 429s here instead of relying on the library's internal retry to avoid infinite hanging.
         max_retries = 3
         results = None
         for attempt in range(max_retries):
             try:
-                results = sch.search_paper(query, limit=5, fields=['title', 'url', 'abstract', 'authors', 'publicationDate', 'externalIds', 'openAccessPdf'])
-                break # Success
+                results = sch.search_paper(query, limit=MAX_RESULTS, fields=['title', 'url', 'abstract', 'authors', 'publicationDate', 'externalIds', 'openAccessPdf'])
+                break
             except Exception as search_val_e:
-                # If we get rate limited, sleep and retry
                 if "429" in str(search_val_e) or "Too Many Requests" in str(search_val_e):
                     if attempt < max_retries - 1:
-                        sleep_time = 2 ** attempt * 2 # Exponential backoff: 2s, 4s, 8s
+                        sleep_time = 2 ** attempt * 2
                         print(f"Semantic Scholar rate limited (429). Retrying in {sleep_time} seconds...")
                         time.sleep(sleep_time)
                     else:
@@ -148,25 +233,11 @@ def semantic_scholar_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
                         raise search_val_e
                 else:
                     raise search_val_e
-        
+
         papers = []
         if results:
             for item in results:
                 try:
-                    # Depending on library version, item might be object or dict
-                    # The latest library usually returns objects, but let's be safe
-                    if hasattr(item, 'raw_data'):
-                         data = item.raw_data
-                    else:
-                         data = item
-
-                    # If it's an object, try to access attributes or convert to dict
-                    # The library usually returns `Paper` objects which are dict-like or have attributes
-                    # Let's try to treat it as a dict first if possible or use attributes
-
-                    # For safety with the library, let's assume it behaves like a dict or object with attributes matching the fields requested
-                    # Actually, let's just use the `raw_data` if available, or construct dict
-
                     paper_dict = {}
                     for field in ['title', 'url', 'abstract', 'authors', 'publicationDate', 'externalIds', 'openAccessPdf', 'paperId']:
                         if hasattr(item, field):
@@ -197,11 +268,9 @@ def web_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
 
     try:
         client = TavilyClient(api_key=api_key)
-        response = client.search(query, search_depth="advanced", max_results=5)
+        response = client.search(query, search_depth="advanced", max_results=MAX_RESULTS)
         results = response.get('results', [])
         papers = [create_paper_from_tavily(r) for r in results]
-        # Filter out papers that are clearly not academic if possible?
-        # For now, just accept them as "General Web" findings.
         print(f"Web Scout found {len(papers)} papers.")
         return {"papers": papers, "logs": [f"Web Scout found {len(papers)} results."]}
     except Exception as e:
@@ -211,26 +280,24 @@ def web_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
 def pubmed_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
     query = state.get('scout_queries', {}).get('pubmed', state['query'])
     print(f"--- PubMed Scout searching for: {query} ---")
-    
+
     try:
-        # Search PubMed for PMIDs
         search_query = urllib.parse.quote(query)
-        search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={search_query}&retmode=json&retmax=5"
-        
+        search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={search_query}&retmode=json&retmax={MAX_RESULTS}"
+
         req = urllib.request.Request(search_url, headers={'User-Agent': "Mozilla/5.0"})
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
             search_data = json.loads(response.read().decode())
-            
+
         pmids = search_data.get('esearchresult', {}).get('idlist', [])
         papers = []
-        
+
         if pmids:
-            # Fetch details for the PMIDs
             fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={','.join(pmids)}&retmode=xml"
             fetch_req = urllib.request.Request(fetch_url, headers={'User-Agent': "Mozilla/5.0"})
-            with urllib.request.urlopen(fetch_req) as fetch_response:
+            with urllib.request.urlopen(fetch_req, timeout=15) as fetch_response:
                 xml_data = fetch_response.read()
-                
+
             root = ET.fromstring(xml_data)
             for article in root.findall('.//PubmedArticle'):
                 try:
@@ -238,9 +305,91 @@ def pubmed_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
                 except Exception as e:
                     print(f"Error processing pubmed article: {e}")
                     continue
-                    
+
         print(f"PubMed Scout found {len(papers)} papers.")
         return {"papers": papers, "logs": [f"PubMed found {len(papers)} papers."]}
     except Exception as e:
         print(f"PubMed error: {e}")
         return {"papers": [], "logs": [f"PubMed error: {str(e)}"]}
+
+
+def openalex_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
+    """Search OpenAlex — 250M+ works across all academic disciplines (free, no key)."""
+    query = state.get('scout_queries', {}).get('semantic_scholar', state['query'])
+    print(f"--- OpenAlex Scout searching for: {query} ---")
+
+    try:
+        encoded_query = urllib.parse.quote(query)
+        url = (
+            f"https://api.openalex.org/works?"
+            f"search={encoded_query}"
+            f"&per_page={MAX_RESULTS}"
+            f"&sort=relevance_score:desc"
+            f"&select=id,title,doi,authorships,publication_date,abstract_inverted_index,"
+            f"primary_location,open_access,type"
+        )
+
+        headers = {
+            'User-Agent': 'ScholarAgent/1.0 (mailto:scholar-agent@example.com)',
+            'Accept': 'application/json',
+        }
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as response:
+            data = json.loads(response.read().decode())
+
+        results = data.get('results', [])
+        papers = []
+        for work in results:
+            try:
+                papers.append(create_paper_from_openalex(work))
+            except Exception as e:
+                print(f"Error processing OpenAlex work: {e}")
+                continue
+
+        print(f"OpenAlex Scout found {len(papers)} papers.")
+        return {"papers": papers, "logs": [f"OpenAlex found {len(papers)} papers."]}
+    except Exception as e:
+        print(f"OpenAlex error: {e}")
+        return {"papers": [], "logs": [f"OpenAlex error: {str(e)}"]}
+
+
+def europe_pmc_scout(state: ScientificDiscoveryState) -> Dict[str, Any]:
+    """Search Europe PMC — covers PubMed, bioRxiv, medRxiv preprints, and more (free, no key)."""
+    query = state.get('scout_queries', {}).get('pubmed', state['query'])
+    print(f"--- Europe PMC Scout searching for: {query} ---")
+
+    try:
+        encoded_query = urllib.parse.quote(query)
+        # SRC:PPR filters for preprints (bioRxiv, medRxiv, etc.)
+        # We search broadly but boost preprints to complement PubMed
+        url = (
+            f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?"
+            f"query={encoded_query}"
+            f"&resultType=core"
+            f"&pageSize={MAX_RESULTS}"
+            f"&format=json"
+            f"&sort=RELEVANCE"
+        )
+
+        headers = {
+            'User-Agent': 'ScholarAgent/1.0',
+            'Accept': 'application/json',
+        }
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as response:
+            data = json.loads(response.read().decode())
+
+        results = data.get('resultList', {}).get('result', [])
+        papers = []
+        for result in results:
+            try:
+                papers.append(create_paper_from_europe_pmc(result))
+            except Exception as e:
+                print(f"Error processing Europe PMC result: {e}")
+                continue
+
+        print(f"Europe PMC Scout found {len(papers)} papers.")
+        return {"papers": papers, "logs": [f"Europe PMC found {len(papers)} papers."]}
+    except Exception as e:
+        print(f"Europe PMC error: {e}")
+        return {"papers": [], "logs": [f"Europe PMC error: {str(e)}"]}

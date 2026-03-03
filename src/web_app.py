@@ -96,6 +96,17 @@ def _build_payload(node: str, values: dict) -> dict | None:
             ],
         }
 
+    if node == "citation_explorer":
+        papers = values.get("papers", [])
+        return {
+            "event": "citation_explorer",
+            "discovered": len(papers),
+            "papers": [
+                {"title": p.title, "source": p.source, "url": p.url}
+                for p in papers
+            ],
+        }
+
     if node == "writer":
         return {
             "event": "writer",

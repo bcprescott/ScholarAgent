@@ -17,11 +17,11 @@ class MockChatCompletions:
         response = "Mock response"
 
         if "generate optimized search queries" in combined_text:
-             response = '{"arxiv": "LLM oncology", "semantic_scholar": "LLM applications in cancer treatment", "web": "LLM oncology pdf"}'
-        elif "Analyze the provided text" in combined_text or "relevance_score" in combined_text:
-             response = '{"relevance_score": 85, "key_findings": "Found interesting things.", "methodology": "Survey.", "limitations": "Limited scope."}'
-        elif "scientific writer" in combined_text:
-             response = "# Report\n\nThis is a mock report."
+             response = '{"arxiv": "LLM oncology", "pubmed": "LLM cancer treatment clinical", "semantic_scholar": "LLM applications in cancer treatment", "web": "LLM oncology recent developments"}'
+        elif "relevance_score" in combined_text or "scientific analyst" in combined_text.lower():
+             response = '{"relevance_score": 85, "key_findings": "Found interesting things.", "methodology": "Survey.", "limitations": "Limited scope.", "study_type": "literature review", "evidence_level": "moderate", "confidence_notes": "Based on a review of existing literature."}'
+        elif "scientific review writer" in combined_text.lower() or "research synthesis" in combined_text.lower():
+             response = "# Research Synthesis: LLM in Oncology\n\n## Executive Summary\nThis is a mock report.\n\n## References\n[1] Mock Paper"
 
         return MockResponse(choices=[MockChoice(message=MockMessage(content=response))])
 

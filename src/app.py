@@ -58,6 +58,20 @@ async def on_message(message: cl.Message):
                     async with cl.Step(name="Scout Agents") as step:
                         step.output = content
 
+                # Citation Explorer
+                elif node == "citation_explorer":
+                    papers = values.get("papers", [])
+                    content = f"Discovered **{len(papers)}** additional papers via citation graph traversal.\n"
+                    if papers:
+                        content += "\nNewly discovered papers:\n"
+                        for p in papers[:10]:
+                            content += f"- {p.title} ({p.source})\n"
+                        if len(papers) > 10:
+                            content += f"- ...and {len(papers) - 10} more\n"
+
+                    async with cl.Step(name="Citation Explorer") as step:
+                        step.output = content
+
                 # Fetcher
                 elif node == "fetcher":
                     papers = values.get("papers", [])

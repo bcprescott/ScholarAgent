@@ -6,7 +6,11 @@ import os
 
 def parse_json(text):
     try:
-        # Try finding JSON block
+        # Try finding JSON block in ```json ... ``` first
+        match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+        # Try finding any JSON object
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             return json.loads(match.group(0))
@@ -19,15 +23,24 @@ def supervisor_agent(state: ScientificDiscoveryState):
     query = state['query']
 
     messages = [
-        {"role": "system", "content": "You are a research supervisor. Given the user query, generate 3 optimized search queries, one for each repository: 1. 'arxiv' (focus on technical/scientific terms), 2. 'pubmed' (medical/clinical keywords), 3. 'web' (broad search for recent developments or missed papers). Make sure all queries cover the current year and will return the most recent and relevant papers first. Return strictly valid JSON with keys: 'arxiv', 'pubmed', 'web'."},
+        {"role": "system", "content": (
+            "You are a research supervisor. Given the user query, generate optimized search queries "
+            "for each of these academic repositories:\n"
+            "1. 'arxiv' — technical/scientific terms, focus on CS, physics, math, quantitative biology\n"
+            "2. 'pubmed' — medical/clinical keywords, MeSH-style terms\n"
+            "3. 'semantic_scholar' — broad academic terms covering all disciplines\n"
+            "4. 'web' — broad search for recent developments, news, reviews, or grey literature\n\n"
+            "Make sure all queries are optimized for their target repository and will return "
+            "the most recent and relevant papers. Include year references where appropriate.\n\n"
+            "Return strictly valid JSON with keys: 'arxiv', 'pubmed', 'semantic_scholar', 'web'."
+        )},
         {"role": "user", "content": f"Query: {query}"}
     ]
 
     response = llm.chat.completions.create(
         model=get_model_name(),
-        messages=messages
-        # ,
-        # temperature=0
+        messages=messages,
+        response_format={"type": "json_object"}
     )
     result_content = response.choices[0].message.content
 
@@ -36,6 +49,11 @@ def supervisor_agent(state: ScientificDiscoveryState):
     if not scout_queries:
         print(f"Failed to parse JSON from supervisor: {result_content}")
         # Fallback
-        scout_queries = {'arxiv': query, 'pubmed': query, 'web': query}
+        scout_queries = {
+            'arxiv': query,
+            'pubmed': query,
+            'semantic_scholar': query,
+            'web': query,
+        }
 
     return {"scout_queries": scout_queries, "logs": [f"Supervisor generated queries: {scout_queries}"]}
